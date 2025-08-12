@@ -1,0 +1,179 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: #f0f2f5;
+  margin: 0;
+  padding: 0;
+}
+
+h1, h2 {
+  color: #2c3e50;
+}
+
+input, button {
+  transition: all 0.2s ease;
+}
+
+input:focus {
+  outline: none;
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
+}
+
+button:hover {
+  transform: scale(1.03);
+}
+
+.grid > div {
+  transition: transform 0.2s ease;
+}
+
+.grid > div:hover {
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+  background: linear-gradient(to right, #eef2ff, #f0f9ff);
+}
+
+.bg-white {
+  background-color: #fff;
+}
+
+.text-indigo-600 {
+  color: #4f46e5;
+}
+
+.text-blue-600 {
+  color: #2563eb;
+}
+
+.bg-blue-600 {
+  background-color: #2563eb;
+}
+
+.bg-blue-600:hover {
+  background-color: #1d4ed8;
+}
+
+.shadow-md {
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.06);
+}
+
+.shadow-sm {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+.rounded-lg {
+  border-radius: 0.75rem;
+}
+
+.rounded-xl {
+  border-radius: 1rem;
+}
+
+.text-red-500:hover {
+  color: #dc2626;
+}
+
+.cursor-pointer {
+  cursor: pointer;
+}
+
+.hover\:underline:hover {
+  text-decoration: underline;
+}
+
+/* Garante que os botões de edição não saiam da área da imagem */
+.relative img[alt="Editar"] {
+  z-index: 10;
+}
+
+.img-wrapper {
+  position: relative;
+  width: 6rem;
+  height: 6rem;
+  margin: 0 auto 0.5rem;
+}
+
+.img-wrapper img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 999px;
+}
+
+.img-wrapper .edit-btn {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  transform: translate(25%, 25%);
+  width: 24px;
+  height: 24px;
+  background: white;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.2);
+}
+
+
+
+
+/* Fundo geral */
+body, .bg-gray-100 {
+  background-color: #f5faff; /* branco azulado */
+  color: #000000; /* texto preto */
+}
+
+/* Cartões e blocos */
+.bg-white {
+  background-color: #ffffff; /* branco */
+}
+
+/* Títulos */
+h1, h2, h3, .font-semibold, .font-bold {
+  color: #003366; /* azul escuro */
+}
+
+/* Botões padrão */
+button {
+  background-color: #007bff; /* azul padrão */
+  color: white;
+  border: none;
+}
+
+/* Botões com hover */
+button:hover {
+  background-color: #0056b3; /* azul escuro no hover */
+}
+
+/* Bordas e inputs */
+input, select {
+  border: 1px solid #003366;
+  background-color: #ffffff;
+  color: #000000;
+}
+
+/* Campos com foco */
+input:focus, select:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 3px #007bff;
+}
+
+/* Bônus: pequenos detalhes */
+.text-indigo-700 {
+  color: #003366;
+}
+.text-gray-600 {
+  color: #222;
+}
+.bg-gray-50 {
+  background-color: #e6f0ff; /* azul clarinho para destacar blocos */
+}
+.text-red-500 {
+  color: #cc0000;
+}
