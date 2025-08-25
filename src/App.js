@@ -1,4 +1,10 @@
 // App.jsx
+/* eslint-disable react/prop-types */
+/* 
+  Para deploy:
+  - Defina REACT_APP_API_URL no Vercel (ex.: https://meu-backend-ztnn.onrender.com/api)
+  - Garanta no backend CORS: origin: ['https://SEU-FRONTEND.vercel.app']
+*/
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import AvatarEditor from 'react-avatar-editor';
@@ -7,10 +13,20 @@ import { saveAs } from 'file-saver';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import './App.css';
 
-function App() {
-  // ======= URL base da API (Render) =======
-  const API = 'https://meu-backend-ztnn.onrender.com/api';
+// ======= Axios configurado =======
+const API_BASE =
+  (typeof process !== 'undefined' &&
+    process.env &&
+    process.env.REACT_APP_API_URL) ||
+  'https://meu-backend-ztnn.onrender.com/api';
 
+const api = axios.create({
+  baseURL: API_BASE,
+  // se seu backend exigir cookies/sessão, ligue:
+  // withCredentials: true,
+});
+
+function App() {
   // ======= Serviços =======
   const [servicos, setServicos] = useState([]);
   const [nome, setNome] = useState('');
@@ -18,8 +34,12 @@ function App() {
   const [percentual, setPercentual] = useState(0);
   const [tecnico, setTecnico] = useState('');
   const [fotos, setFotos] = useState(() => {
-    const armazenadas = localStorage.getItem('fotosTecnicos');
-    return armazenadas ? JSON.parse(armazenadas) : {};
+    try {
+      const armazenadas = localStorage.getItem('fotosTecnicos');
+      return armazenadas ? JSON.parse(armazenadas) : {};
+    } catch {
+      return {};
+    }
   });
   const [imagemEditor, setImagemEditor] = useState(null);
   const [tecnicoEditor, setTecnicoEditor] = useState(null);
@@ -51,83 +71,97 @@ function App() {
     'Preventiva de computador gamer',
   ];
 
-  // ======= Fetch inicial de serviços e investimentos (do Render) =======
+  // ======= Fetch inicial (Render) =======
   useEffect(() => {
-    // serviços
-    axios.get(`${API}/servicos`)
-      .then(res => setServicos(res.data))
-      .catch(err => console.error('Erro ao buscar serviços:', err));
+    let ativo = true;
 
-    // investimentos (do Render; sem localhost)
-    axios.get(`${API}/investimentos`)
-      .then(res => {
-        const dados = res.data || [];
-        setInvestimentos(dados);
-      })
-      .catch(err => {
-        console.error('Erro ao buscar investimentos:', err);
+    (async () => {
+      try {
+        const [srv, inv] = await Promise.all([
+          api.get('/servicos'),
+          api.get('/investimentos'),
+        ]);
+        if (!ativo) return;
+        setServicos(Array.isArray(srv.data) ? srv.data : []);
+        setInvestimentos(Array.isArray(inv.data) ? inv.data : []);
+      } catch (err) {
+        console.error('Erro ao buscar dados:', err);
+        if (!ativo) return;
+        setServicos([]);
         setInvestimentos([]);
-      });
+      }
+    })();
+
+    return () => {
+      ativo = false;
+    };
   }, []);
 
   // ======= Funções de imagem/avatar =======
   const salvarImagemRecortada = () => {
     if (editorRef.current && tecnicoEditor) {
       const canvas = editorRef.current.getImageScaledToCanvas();
-      const dataUrl = canvas.toDataURL();
+      const dataUrl = canvas.toDataURL('image/png');
       const novaFoto = { ...fotos, [tecnicoEditor]: dataUrl };
       setFotos(novaFoto);
-      localStorage.setItem('fotosTecnicos', JSON.stringify(novaFoto));
+      try {
+        localStorage.setItem('fotosTecnicos', JSON.stringify(novaFoto));
+      } catch {}
       setImagemEditor(null);
       setTecnicoEditor(null);
     }
   };
 
   const handleFotoUpload = (e, nomeTec) => {
-    const file = e.target.files[0];
+    const file = e.target.files && e.target.files[0];
     if (file) {
       setImagemEditor(file);
       setTecnicoEditor(nomeTec);
     }
   };
 
-  // ======= Serviços: adicionar (POST no backend) / remover (DELETE) =======
+  // ======= Serviços: adicionar / remover =======
   const adicionarServico = async () => {
     const payload = {
-      nome,
-      tecnico,
-      custoBase: parseFloat(custoBase) || 0,
-      percentual: parseFloat(percentual) || 0,
-      data: new Date().toISOString()
+      nome: String(nome || '').trim(),
+      tecnico: String(tecnico || '').trim(),
+      custoBase: Number.parseFloat(custoBase) || 0,
+      percentual: Number.parseFloat(percentual) || 0,
+      data: new Date().toISOString(),
     };
 
-    if (!payload.nome || !payload.tecnico || !payload.custoBase) {
-      return; // aqui você pode exibir um alerta se quiser
+    if (!payload.nome || !payload.tecnico || payload.custoBase <= 0) {
+      alert('Preencha serviço, técnico e custo base > 0.');
+      return;
     }
 
     try {
-      const res = await axios.post(`${API}/servicos`, payload);
-      setServicos(prev => [res.data, ...prev]); // adiciona o salvo no banco (vem com _id)
+      const res = await api.post('/servicos', payload);
+      const salvo = res.data;
+      setServicos((prev) => [salvo, ...prev]);
       setNome('');
       setTecnico('');
       setCustoBase('');
       setPercentual(0);
     } catch (err) {
       console.error('Erro ao salvar serviço:', err);
+      alert('Não foi possível salvar o serviço.');
     }
   };
 
   const removerServico = async (id) => {
+    if (!id) return;
     try {
-      await axios.delete(`${API}/servicos/${id}`);
-      setServicos(prev => prev.filter(s => (s._id || s.id) !== id));
+      await api.delete(`/servicos/${id}`);
+      setServicos((prev) => prev.filter((s) => (s._id || s.id) !== id));
     } catch (err) {
       console.error('Erro ao remover serviço:', err);
+      alert('Não foi possível remover o serviço.');
     }
   };
 
   const agrupado = servicos.reduce((acc, servico) => {
-    const nomeTec = servico.tecnico;
+    const nomeTec = servico && servico.tecnico;
     if (!nomeTec) return acc;
     if (!acc[nomeTec]) acc[nomeTec] = [];
     acc[nomeTec].push(servico);
@@ -135,90 +169,108 @@ function App() {
   }, {});
 
   const toggleServicos = (nomeTec) => {
-    setTecnicosExpandido(prev => ({
+    setTecnicosExpandido((prev) => ({
       ...prev,
-      [nomeTec]: !prev[nomeTec]
+      [nomeTec]: !prev[nomeTec],
     }));
   };
 
   // ======= Exportar serviços para Excel =======
   const exportarParaExcel = () => {
-    if (!tecnicoParaExportar) return;
+    if (!tecnicoParaExportar) {
+      alert('Escolha um técnico para exportar.');
+      return;
+    }
 
-    const dadosFiltrados = servicos.filter(s => s.tecnico === tecnicoParaExportar);
+    const dadosFiltrados = servicos.filter(
+      (s) => s.tecnico === tecnicoParaExportar
+    );
     let totalBonus = 0;
 
-    const dadosParaExportar = dadosFiltrados.map(servico => {
+    const dadosParaExportar = dadosFiltrados.map((servico) => {
       const base = Number(servico.custoBase) || 0;
       const perc = Number(servico.percentual) || 0;
       const bonus = base * (perc / 100);
       totalBonus += bonus;
       const valorFinal = base - bonus;
-      const dataFormatada = new Date(servico.data).toLocaleDateString('pt-BR');
+      const dataFormatada = servico.data
+        ? new Date(servico.data).toLocaleDateString('pt-BR')
+        : '';
 
       return {
-        'Serviço': servico.nome,
-        'Técnico': servico.tecnico,
+        Serviço: servico.nome,
+        Técnico: servico.tecnico,
         'Custo Base': base.toFixed(2),
         'Percentual (%)': perc.toFixed(2),
         'Bônus Técnico': bonus.toFixed(2),
         'Valor Final': valorFinal.toFixed(2),
-        'Data': dataFormatada
+        Data: dataFormatada,
       };
     });
 
     dadosParaExportar.push({
-      'Serviço': '',
-      'Técnico': '',
+      Serviço: '',
+      Técnico: '',
       'Custo Base': '',
       'Percentual (%)': '',
       'Bônus Técnico': `TOTAL: R$ ${totalBonus.toFixed(2)}`,
       'Valor Final': '',
-      'Data': ''
+      Data: '',
     });
 
     const ws = XLSX.utils.json_to_sheet(dadosParaExportar);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, tecnicoParaExportar);
     const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    const arquivo = new Blob([excelBuffer], { type: 'application/octet-stream' });
+    const arquivo = new Blob([excelBuffer], {
+      type:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
     saveAs(arquivo, `${tecnicoParaExportar}_servicos.xlsx`);
   };
 
-  // ======= Investimentos: adicionar (POST) =======
+  // ======= Investimentos: adicionar =======
   const adicionarInvestimento = async () => {
-    const valor = parseFloat(valorInvestido);
-    const nomeFinal = mostrarOutroInvestidor ? outroInvestidor : investidor;
-    if (!nomeFinal || isNaN(valor) || valor <= 0) return;
+    const valor = Number.parseFloat(valorInvestido);
+    const nomeFinal = (mostrarOutroInvestidor ? outroInvestidor : investidor || '').trim();
+
+    if (!nomeFinal || Number.isNaN(valor) || valor <= 0) {
+      alert('Informe o investidor e um valor > 0.');
+      return;
+    }
 
     try {
-      const res = await axios.post(`${API}/investimentos`, {
+      // IMPORTANTE: o backend precisa aceitar { investidor, valor }
+      const res = await api.post('/investimentos', {
         investidor: nomeFinal,
-        valor
+        valor,
       });
-      setInvestimentos(prev => [res.data, ...prev]);
+      setInvestimentos((prev) => [res.data, ...prev]);
       setInvestidor('');
       setOutroInvestidor('');
       setMostrarOutroInvestidor(false);
       setValorInvestido('');
     } catch (err) {
       console.error('Erro ao salvar investimento:', err);
+      alert('Não foi possível salvar o investimento.');
     }
   };
 
-  // ======= Cálculo acumulado por investidor (e dados para gráfico) =======
+  // ======= Totais por investidor e gráfico =======
   const totaisInvestidores = investimentos.reduce((acc, item) => {
     const nameRaw = item && item.investidor;
     const name = nameRaw && String(nameRaw).trim();
-    if (!name) return acc; // pular entradas sem nome
+    if (!name) return acc;
     acc[name] = (acc[name] || 0) + Number(item.valor || 0);
     return acc;
   }, {});
 
-  const dadosGraficoInvest = Object.keys(totaisInvestidores).map(nomeInv => ({
-    name: nomeInv,
-    value: totaisInvestidores[nomeInv]
-  }));
+  const dadosGraficoInvest = Object.keys(totaisInvestidores).map(
+    (nomeInv) => ({
+      name: nomeInv,
+      value: totaisInvestidores[nomeInv],
+    })
+  );
 
   const cores = ['#1e3a8a', '#2563eb', '#3b82f6', '#60a5fa', '#93c5fd'];
 
@@ -228,14 +280,24 @@ function App() {
       {/* topo com abas */}
       <div className="flex gap-4 mb-6">
         <button
-          className={`px-4 py-2 rounded font-semibold ${pagina === 'servicos' ? 'bg-blue-600 text-white' : 'bg-white text-black border'}`}
+          className={`px-4 py-2 rounded font-semibold ${
+            pagina === 'servicos'
+              ? 'bg-blue-600 text-white'
+              : 'bg-white text-black border'
+          }`}
           onClick={() => setPagina('servicos')}
+          type="button"
         >
           Serviços
         </button>
         <button
-          className={`px-4 py-2 rounded font-semibold ${pagina === 'investimentos' ? 'bg-blue-600 text-white' : 'bg-white text-black border'}`}
+          className={`px-4 py-2 rounded font-semibold ${
+            pagina === 'investimentos'
+              ? 'bg-blue-600 text-white'
+              : 'bg-white text-black border'
+          }`}
           onClick={() => setPagina('investimentos')}
+          type="button"
         >
           Investimentos
         </button>
@@ -244,7 +306,9 @@ function App() {
       {/* ================= INVESTIMENTOS ================= */}
       {pagina === 'investimentos' ? (
         <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-2xl font-bold text-blue-800 mb-4">Investimentos</h2>
+          <h2 className="text-2xl font-bold text-blue-800 mb-4">
+            Investimentos
+          </h2>
 
           {/* formulário */}
           <div className="mb-6 grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
@@ -252,7 +316,7 @@ function App() {
               <select
                 className="border px-4 py-2 rounded w-full"
                 value={investidor}
-                onChange={e => {
+                onChange={(e) => {
                   const valor = e.target.value;
                   if (valor === 'Outro') {
                     setMostrarOutroInvestidor(true);
@@ -264,8 +328,10 @@ function App() {
                 }}
               >
                 <option value="">Selecione o investidor</option>
-                {investidoresPadrao.map(nome => (
-                  <option key={nome} value={nome}>{nome}</option>
+                {investidoresPadrao.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
                 ))}
                 <option value="Outro">Outro</option>
               </select>
@@ -274,7 +340,7 @@ function App() {
                   className="border px-4 py-2 rounded w-full mt-2"
                   placeholder="Nome do novo investidor"
                   value={outroInvestidor}
-                  onChange={e => setOutroInvestidor(e.target.value)}
+                  onChange={(e) => setOutroInvestidor(e.target.value)}
                 />
               )}
             </div>
@@ -283,26 +349,28 @@ function App() {
               className="border px-4 py-2 rounded"
               placeholder="Valor investido"
               type="number"
+              inputMode="decimal"
               value={valorInvestido}
-              onChange={e => setValorInvestido(e.target.value)}
+              onChange={(e) => setValorInvestido(e.target.value)}
             />
 
             <div className="md:col-span-2 flex gap-2">
               <button
                 className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition"
                 onClick={adicionarInvestimento}
+                type="button"
               >
                 Adicionar Investimento
               </button>
               <button
                 className="bg-white text-blue-700 px-4 py-2 rounded border"
                 onClick={() => {
-                  // reset rápido do formulário
                   setInvestidor('');
                   setValorInvestido('');
                   setOutroInvestidor('');
                   setMostrarOutroInvestidor(false);
                 }}
+                type="button"
               >
                 Limpar
               </button>
@@ -314,7 +382,9 @@ function App() {
             <h3 className="text-lg font-semibold mb-2">Totais Acumulados</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {Object.keys(totaisInvestidores).length === 0 && (
-                <div className="text-gray-600 col-span-full">Nenhum investimento registrado.</div>
+                <div className="text-gray-600 col-span-full">
+                  Nenhum investimento registrado.
+                </div>
               )}
               {Object.entries(totaisInvestidores).map(([nomeInv, total]) => (
                 <div key={nomeInv} className="p-4 rounded shadow bg-blue-50">
@@ -329,7 +399,9 @@ function App() {
           <div className="grid md:grid-cols-2 gap-8">
             <div className="h-64">
               {dadosGraficoInvest.length === 0 ? (
-                <div className="flex items-center justify-center h-full text-gray-500">Nenhum dado para gráfico</div>
+                <div className="flex items-center justify-center h-full text-gray-500">
+                  Nenhum dado para gráfico
+                </div>
               ) : (
                 <ResponsiveContainer>
                   <PieChart>
@@ -342,10 +414,15 @@ function App() {
                       label
                     >
                       {dadosGraficoInvest.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={cores[index % cores.length]} />
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={cores[index % cores.length]}
+                        />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(value) => `R$ ${Number(value).toFixed(2)}`} />
+                    <Tooltip
+                      formatter={(value) => `R$ ${Number(value).toFixed(2)}`}
+                    />
                     <Legend />
                   </PieChart>
                 </ResponsiveContainer>
@@ -353,20 +430,37 @@ function App() {
             </div>
 
             <div>
-              <h3 className="text-lg font-semibold mb-2">Histórico de Investimentos</h3>
+              <h3 className="text-lg font-semibold mb-2">
+                Histórico de Investimentos
+              </h3>
               <ul className="space-y-2 max-h-64 overflow-auto">
-                {investimentos.filter(item => item && item.investidor && String(item.investidor).trim() !== '').length === 0 && (
+                {investimentos.filter(
+                  (item) =>
+                    item && item.investidor && String(item.investidor).trim() !== ''
+                ).length === 0 && (
                   <div className="text-gray-600">Nenhum registro ainda.</div>
                 )}
                 {investimentos
-                  .filter(item => item && item.investidor && String(item.investidor).trim() !== '')
+                  .filter(
+                    (item) =>
+                      item &&
+                      item.investidor &&
+                      String(item.investidor).trim() !== ''
+                  )
                   .map((item, index) => {
-                    const dataFormat = item.data ? new Date(item.data).toLocaleDateString('pt-BR') : '';
+                    const dataFormat = item.data
+                      ? new Date(item.data).toLocaleDateString('pt-BR')
+                      : '';
                     return (
-                      <li key={item._id || item.id || index} className="border p-2 rounded bg-white">
+                      <li
+                        key={item._id || item.id || index}
+                        className="border p-2 rounded bg-white"
+                      >
                         <div className="font-semibold">{item.investidor}</div>
                         <div>R$ {Number(item.valor).toFixed(2)}</div>
-                        <div className="text-sm text-gray-500">Data: {dataFormat}</div>
+                        <div className="text-sm text-gray-500">
+                          Data: {dataFormat}
+                        </div>
                       </li>
                     );
                   })}
@@ -378,10 +472,16 @@ function App() {
         /* ================= SERVIÇOS ================= */
         <div>
           <div className="max-w-3xl mx-auto mb-10 bg-white p-6 rounded-lg shadow-md space-y-4">
-            <select className="w-full border px-4 py-2 rounded" value={nome} onChange={e => setNome(e.target.value)}>
+            <select
+              className="w-full border px-4 py-2 rounded"
+              value={nome}
+              onChange={(e) => setNome(e.target.value)}
+            >
               <option value="">Selecione o serviço</option>
-              {servicosPadrao.map(serv => (
-                <option key={serv} value={serv}>{serv}</option>
+              {servicosPadrao.map((serv) => (
+                <option key={serv} value={serv}>
+                  {serv}
+                </option>
               ))}
               <option value="Outro">Outro</option>
             </select>
@@ -390,14 +490,20 @@ function App() {
                 className="w-full border px-4 py-2 mt-2 rounded"
                 placeholder="Digite o nome do serviço"
                 value={nome}
-                onChange={e => setNome(e.target.value)}
+                onChange={(e) => setNome(e.target.value)}
               />
             )}
 
-            <select className="w-full border px-4 py-2 rounded" value={tecnico} onChange={e => setTecnico(e.target.value)}>
+            <select
+              className="w-full border px-4 py-2 rounded"
+              value={tecnico}
+              onChange={(e) => setTecnico(e.target.value)}
+            >
               <option value="">Selecione o técnico</option>
-              {tecnicosPadrao.map(n => (
-                <option key={n} value={n}>{n}</option>
+              {tecnicosPadrao.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
               ))}
               <option value="Outro">Outro</option>
             </select>
@@ -406,7 +512,7 @@ function App() {
                 className="w-full border px-4 py-2 mt-2 rounded"
                 placeholder="Nome do novo técnico"
                 value={tecnico}
-                onChange={e => setTecnico(e.target.value)}
+                onChange={(e) => setTecnico(e.target.value)}
               />
             )}
 
@@ -414,23 +520,30 @@ function App() {
               className="w-full border px-4 py-2 rounded"
               placeholder="Custo base"
               type="number"
+              inputMode="decimal"
               value={custoBase}
-              onChange={e => setCustoBase(e.target.value)}
+              onChange={(e) => setCustoBase(e.target.value)}
             />
 
             <div>
-              <label className="block mb-1 text-gray-700">Percentual de bônus técnico (%)</label>
+              <label className="block mb-1 text-gray-700">
+                Percentual de bônus técnico (%)
+              </label>
               <input
                 className="w-full border px-4 py-2 rounded"
                 type="number"
+                inputMode="decimal"
                 value={percentual}
-                onChange={e => setPercentual(parseFloat(e.target.value) || 0)}
+                onChange={(e) =>
+                  setPercentual(Number.parseFloat(e.target.value) || 0)
+                }
               />
             </div>
 
             <button
               className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
               onClick={adicionarServico}
+              type="button"
             >
               Adicionar Serviço
             </button>
@@ -439,16 +552,19 @@ function App() {
               <select
                 className="border px-4 py-2 rounded"
                 value={tecnicoParaExportar}
-                onChange={e => setTecnicoParaExportar(e.target.value)}
+                onChange={(e) => setTecnicoParaExportar(e.target.value)}
               >
                 <option value="">Escolha o técnico para exportar</option>
-                {Object.keys(agrupado).map(n => (
-                  <option key={n} value={n}>{n}</option>
+                {Object.keys(agrupado).map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
                 ))}
               </select>
               <button
                 className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
                 onClick={exportarParaExcel}
+                type="button"
               >
                 Exportar Excel
               </button>
@@ -457,7 +573,7 @@ function App() {
 
           <h2 className="text-2xl font-semibold mb-4">Técnicos</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-            {Object.keys(agrupado).map(tec => (
+            {Object.keys(agrupado).map((tec) => (
               <div
                 key={tec}
                 className="bg-white rounded-xl shadow-md p-4 text-center relative group cursor-pointer"
@@ -465,18 +581,26 @@ function App() {
               >
                 <div className="img-wrapper mx-auto">
                   <img
-                    src={fotos[tec] || `https://i.pravatar.cc/150?u=${tec}`}
+                    src={fotos[tec] || `https://i.pravatar.cc/150?u=${encodeURIComponent(tec)}`}
                     alt={tec}
                     className="rounded-full w-24 h-24 mx-auto"
                   />
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      window[`fileInput-${tec}`]?.click();
+                      const input = window[`fileInput-${tec}`];
+                      if (input && typeof input.click === 'function') input.click();
                     }}
                     className="edit-btn"
+                    type="button"
+                    aria-label={`Alterar foto de ${tec}`}
+                    title="Alterar foto"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 24 24" className="w-4 h-4 text-gray-800">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      className="w-4 h-4 text-gray-800"
+                    >
                       <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1.003 1.003 0 00-1.42 0l-2.34 2.34 3.75 3.75 2.34-2.34a1.003 1.003 0 000-1.42z" />
                     </svg>
                   </button>
@@ -486,24 +610,36 @@ function App() {
                     style={{ display: 'none' }}
                     onClick={(e) => e.stopPropagation()}
                     onChange={(e) => handleFotoUpload(e, tec)}
-                    ref={input => input && (window[`fileInput-${tec}`] = input)}
+                    ref={(input) => {
+                      if (input) window[`fileInput-${tec}`] = input;
+                    }}
                   />
                 </div>
                 <div className="mt-2">
                   <div className="text-lg font-bold text-indigo-700">{tec}</div>
-                  <div className="text-gray-600">{agrupado[tec].length} serviço(s)</div>
+                  <div className="text-gray-600">
+                    {agrupado[tec].length} serviço(s)
+                  </div>
                 </div>
                 {tecnicosExpandido[tec] && (
                   <div className="mt-4 text-left space-y-2 text-sm">
-                    {agrupado[tec].map(servico => {
+                    {agrupado[tec].map((servico) => {
                       const base = Number(servico.custoBase) || 0;
                       const perc = Number(servico.percentual) || 0;
                       const bonus = base * (perc / 100);
                       const valorFinal = base - bonus;
-                      const data = new Date(servico.data).toLocaleDateString('pt-BR');
+                      const data =
+                        servico.data
+                          ? new Date(servico.data).toLocaleDateString('pt-BR')
+                          : '';
                       return (
-                        <div key={servico._id || servico.id} className="bg-gray-50 p-2 rounded">
-                          <div className="font-semibold">{servico.nome || 'Sem nome'}</div>
+                        <div
+                          key={servico._id || servico.id}
+                          className="bg-gray-50 p-2 rounded"
+                        >
+                          <div className="font-semibold">
+                            {servico.nome || 'Sem nome'}
+                          </div>
                           <div>Custo base: R$ {base.toFixed(2)}</div>
                           <div>Bônus técnico: R$ {bonus.toFixed(2)}</div>
                           <div>Valor final: R$ {valorFinal.toFixed(2)}</div>
@@ -514,6 +650,7 @@ function App() {
                               e.stopPropagation();
                               removerServico(servico._id || servico.id);
                             }}
+                            type="button"
                           >
                             Remover
                           </button>
@@ -546,12 +683,24 @@ function App() {
               max="2"
               step="0.01"
               value={scale}
-              onChange={(e) => setScale(parseFloat(e.target.value))}
+              onChange={(e) => setScale(Number.parseFloat(e.target.value))}
               className="w-full mt-4"
             />
             <div className="mt-4 flex justify-center gap-4">
-              <button className="bg-blue-600 text-white px-4 py-2 rounded" onClick={salvarImagemRecortada}>Salvar</button>
-              <button className="bg-gray-300 px-4 py-2 rounded" onClick={() => setImagemEditor(null)}>Cancelar</button>
+              <button
+                className="bg-blue-600 text-white px-4 py-2 rounded"
+                onClick={salvarImagemRecortada}
+                type="button"
+              >
+                Salvar
+              </button>
+              <button
+                className="bg-gray-300 px-4 py-2 rounded"
+                onClick={() => setImagemEditor(null)}
+                type="button"
+              >
+                Cancelar
+              </button>
             </div>
           </div>
         </div>
