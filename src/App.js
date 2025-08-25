@@ -1,4 +1,4 @@
-// App.jsx (substitua todo o arquivo existente por este)
+// App.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import AvatarEditor from 'react-avatar-editor';
@@ -8,6 +8,9 @@ import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recha
 import './App.css';
 
 function App() {
+  // ======= URL base da API (Render) =======
+  const API = 'https://meu-backend-ztnn.onrender.com/api';
+
   // ======= Serviços =======
   const [servicos, setServicos] = useState([]);
   const [nome, setNome] = useState('');
@@ -48,21 +51,18 @@ function App() {
     'Preventiva de computador gamer',
   ];
 
-  // ======= Fetch inicial de serviços e investimentos =======
+  // ======= Fetch inicial de serviços e investimentos (do Render) =======
   useEffect(() => {
-    axios.get('http://localhost:3001/api/servicos')
+    // serviços
+    axios.get(`${API}/servicos`)
       .then(res => setServicos(res.data))
       .catch(err => console.error('Erro ao buscar serviços:', err));
 
-    // investimentos do backend (filtrando itens sem investidor)
-    axios.get('http://localhost:3001/api/investimentos')
+    // investimentos (do Render; sem localhost)
+    axios.get(`${API}/investimentos`)
       .then(res => {
         const dados = res.data || [];
-        const filtrados = dados.filter(item => {
-          const nomeRaw = item && item.investidor;
-          return nomeRaw && String(nomeRaw).trim() !== '';
-        });
-        setInvestimentos(filtrados);
+        setInvestimentos(dados);
       })
       .catch(err => {
         console.error('Erro ao buscar investimentos:', err);
@@ -83,33 +83,47 @@ function App() {
     }
   };
 
-  const handleFotoUpload = (e, nome) => {
+  const handleFotoUpload = (e, nomeTec) => {
     const file = e.target.files[0];
     if (file) {
       setImagemEditor(file);
-      setTecnicoEditor(nome);
+      setTecnicoEditor(nomeTec);
     }
   };
 
-  // ======= Serviços: adicionar / remover =======
-  const adicionarServico = () => {
-    const novo = {
-      id: Date.now(),
+  // ======= Serviços: adicionar (POST no backend) / remover (DELETE) =======
+  const adicionarServico = async () => {
+    const payload = {
       nome,
       tecnico,
       custoBase: parseFloat(custoBase) || 0,
       percentual: parseFloat(percentual) || 0,
-      data: new Date().toISOString(),
+      data: new Date().toISOString()
     };
-    setServicos(prev => [...prev, novo]);
-    setNome('');
-    setTecnico('');
-    setCustoBase('');
-    setPercentual(0);
+
+    if (!payload.nome || !payload.tecnico || !payload.custoBase) {
+      return; // aqui você pode exibir um alerta se quiser
+    }
+
+    try {
+      const res = await axios.post(`${API}/servicos`, payload);
+      setServicos(prev => [res.data, ...prev]); // adiciona o salvo no banco (vem com _id)
+      setNome('');
+      setTecnico('');
+      setCustoBase('');
+      setPercentual(0);
+    } catch (err) {
+      console.error('Erro ao salvar serviço:', err);
+    }
   };
 
-  const removerServico = (id) => {
-    setServicos(prev => prev.filter(s => s.id !== id));
+  const removerServico = async (id) => {
+    try {
+      await axios.delete(`${API}/servicos/${id}`);
+      setServicos(prev => prev.filter(s => (s._id || s.id) !== id));
+    } catch (err) {
+      console.error('Erro ao remover serviço:', err);
+    }
   };
 
   const agrupado = servicos.reduce((acc, servico) => {
@@ -171,48 +185,30 @@ function App() {
     saveAs(arquivo, `${tecnicoParaExportar}_servicos.xlsx`);
   };
 
-  // ======= Investimentos: adicionar (POST) e estado =======
+  // ======= Investimentos: adicionar (POST) =======
   const adicionarInvestimento = async () => {
     const valor = parseFloat(valorInvestido);
     const nomeFinal = mostrarOutroInvestidor ? outroInvestidor : investidor;
     if (!nomeFinal || isNaN(valor) || valor <= 0) return;
 
     try {
-      const res = await axios.post('http://localhost:3001/api/investimentos', {
+      const res = await axios.post(`${API}/investimentos`, {
         investidor: nomeFinal,
         valor
       });
-      // backend deve retornar o investimento salvo (com id e data)
-      const salvo = res.data;
-      // só adiciona se tiver investidor válido
-      if (salvo && salvo.investidor && String(salvo.investidor).trim() !== '') {
-        setInvestimentos(prev => [...prev, salvo]);
-      }
+      setInvestimentos(prev => [res.data, ...prev]);
       setInvestidor('');
       setOutroInvestidor('');
       setMostrarOutroInvestidor(false);
       setValorInvestido('');
     } catch (err) {
       console.error('Erro ao salvar investimento:', err);
-      // fallback local se backend não responder: adicionar localmente com data
-      const novoInvestimento = {
-        id: Date.now(),
-        investidor: nomeFinal,
-        valor,
-        data: new Date().toLocaleDateString('pt-BR')
-      };
-      setInvestimentos(prev => [...prev, novoInvestimento]);
-      setInvestidor('');
-      setOutroInvestidor('');
-      setMostrarOutroInvestidor(false);
-      setValorInvestido('');
     }
   };
 
   // ======= Cálculo acumulado por investidor (e dados para gráfico) =======
-  // Ignoramos registros sem nome de investidor
   const totaisInvestidores = investimentos.reduce((acc, item) => {
-    const nameRaw = item.investidor;
+    const nameRaw = item && item.investidor;
     const name = nameRaw && String(nameRaw).trim();
     if (!name) return acc; // pular entradas sem nome
     acc[name] = (acc[name] || 0) + Number(item.valor || 0);
@@ -367,7 +363,7 @@ function App() {
                   .map((item, index) => {
                     const dataFormat = item.data ? new Date(item.data).toLocaleDateString('pt-BR') : '';
                     return (
-                      <li key={item.id ?? index} className="border p-2 rounded bg-white">
+                      <li key={item._id || item.id || index} className="border p-2 rounded bg-white">
                         <div className="font-semibold">{item.investidor}</div>
                         <div>R$ {Number(item.valor).toFixed(2)}</div>
                         <div className="text-sm text-gray-500">Data: {dataFormat}</div>
@@ -379,7 +375,7 @@ function App() {
           </div>
         </div>
       ) : (
-        /* ================= SERVIÇOS (mantido) ================= */
+        /* ================= SERVIÇOS ================= */
         <div>
           <div className="max-w-3xl mx-auto mb-10 bg-white p-6 rounded-lg shadow-md space-y-4">
             <select className="w-full border px-4 py-2 rounded" value={nome} onChange={e => setNome(e.target.value)}>
@@ -400,8 +396,8 @@ function App() {
 
             <select className="w-full border px-4 py-2 rounded" value={tecnico} onChange={e => setTecnico(e.target.value)}>
               <option value="">Selecione o técnico</option>
-              {tecnicosPadrao.map(nome => (
-                <option key={nome} value={nome}>{nome}</option>
+              {tecnicosPadrao.map(n => (
+                <option key={n} value={n}>{n}</option>
               ))}
               <option value="Outro">Outro</option>
             </select>
@@ -414,20 +410,40 @@ function App() {
               />
             )}
 
-            <input className="w-full border px-4 py-2 rounded" placeholder="Custo base" type="number" value={custoBase} onChange={e => setCustoBase(e.target.value)} />
+            <input
+              className="w-full border px-4 py-2 rounded"
+              placeholder="Custo base"
+              type="number"
+              value={custoBase}
+              onChange={e => setCustoBase(e.target.value)}
+            />
 
             <div>
               <label className="block mb-1 text-gray-700">Percentual de bônus técnico (%)</label>
-              <input className="w-full border px-4 py-2 rounded" type="number" value={percentual} onChange={e => setPercentual(parseFloat(e.target.value) || 0)} />
+              <input
+                className="w-full border px-4 py-2 rounded"
+                type="number"
+                value={percentual}
+                onChange={e => setPercentual(parseFloat(e.target.value) || 0)}
+              />
             </div>
 
-            <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded" onClick={adicionarServico}>Adicionar Serviço</button>
+            <button
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
+              onClick={adicionarServico}
+            >
+              Adicionar Serviço
+            </button>
 
             <div className="mt-4 flex items-center gap-4">
-              <select className="border px-4 py-2 rounded" value={tecnicoParaExportar} onChange={e => setTecnicoParaExportar(e.target.value)}>
+              <select
+                className="border px-4 py-2 rounded"
+                value={tecnicoParaExportar}
+                onChange={e => setTecnicoParaExportar(e.target.value)}
+              >
                 <option value="">Escolha o técnico para exportar</option>
-                {Object.keys(agrupado).map(nome => (
-                  <option key={nome} value={nome}>{nome}</option>
+                {Object.keys(agrupado).map(n => (
+                  <option key={n} value={n}>{n}</option>
                 ))}
               </select>
               <button
@@ -441,22 +457,22 @@ function App() {
 
           <h2 className="text-2xl font-semibold mb-4">Técnicos</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-            {Object.keys(agrupado).map(tecnico => (
+            {Object.keys(agrupado).map(tec => (
               <div
-                key={tecnico}
+                key={tec}
                 className="bg-white rounded-xl shadow-md p-4 text-center relative group cursor-pointer"
-                onClick={() => toggleServicos(tecnico)}
+                onClick={() => toggleServicos(tec)}
               >
                 <div className="img-wrapper mx-auto">
                   <img
-                    src={fotos[tecnico] || `https://i.pravatar.cc/150?u=${tecnico}`}
-                    alt={tecnico}
+                    src={fotos[tec] || `https://i.pravatar.cc/150?u=${tec}`}
+                    alt={tec}
                     className="rounded-full w-24 h-24 mx-auto"
                   />
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      window[`fileInput-${tecnico}`]?.click();
+                      window[`fileInput-${tec}`]?.click();
                     }}
                     className="edit-btn"
                   >
@@ -469,30 +485,38 @@ function App() {
                     accept="image/*"
                     style={{ display: 'none' }}
                     onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => handleFotoUpload(e, tecnico)}
-                    ref={input => input && (window[`fileInput-${tecnico}`] = input)}
+                    onChange={(e) => handleFotoUpload(e, tec)}
+                    ref={input => input && (window[`fileInput-${tec}`] = input)}
                   />
                 </div>
                 <div className="mt-2">
-                  <div className="text-lg font-bold text-indigo-700">{tecnico}</div>
-                  <div className="text-gray-600">{agrupado[tecnico].length} serviço(s)</div>
+                  <div className="text-lg font-bold text-indigo-700">{tec}</div>
+                  <div className="text-gray-600">{agrupado[tec].length} serviço(s)</div>
                 </div>
-                {tecnicosExpandido[tecnico] && (
+                {tecnicosExpandido[tec] && (
                   <div className="mt-4 text-left space-y-2 text-sm">
-                    {agrupado[tecnico].map(servico => {
+                    {agrupado[tec].map(servico => {
                       const base = Number(servico.custoBase) || 0;
                       const perc = Number(servico.percentual) || 0;
                       const bonus = base * (perc / 100);
                       const valorFinal = base - bonus;
                       const data = new Date(servico.data).toLocaleDateString('pt-BR');
                       return (
-                        <div key={servico.id} className="bg-gray-50 p-2 rounded">
+                        <div key={servico._id || servico.id} className="bg-gray-50 p-2 rounded">
                           <div className="font-semibold">{servico.nome || 'Sem nome'}</div>
                           <div>Custo base: R$ {base.toFixed(2)}</div>
                           <div>Bônus técnico: R$ {bonus.toFixed(2)}</div>
                           <div>Valor final: R$ {valorFinal.toFixed(2)}</div>
                           <div>Data: {data}</div>
-                          <button className="text-red-500 hover:underline text-xs mt-1" onClick={(e) => { e.stopPropagation(); removerServico(servico.id); }}>Remover</button>
+                          <button
+                            className="text-red-500 hover:underline text-xs mt-1"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removerServico(servico._id || servico.id);
+                            }}
+                          >
+                            Remover
+                          </button>
                         </div>
                       );
                     })}
@@ -538,5 +562,5 @@ function App() {
 
 export default App;
 
- 
+ 
  
